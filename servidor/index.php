@@ -7,6 +7,7 @@ require_once __DIR__ . '/src/controllers/incidenciaController.php';
 require_once __DIR__ . '/src/controllers/disponibilitatController.php';
 require_once __DIR__ . '/src/controllers/reservaController.php';
 require_once __DIR__ . '/src/controllers/tarifaController.php';
+require_once __DIR__ . '/src/controllers/notificacioController.php';
 
 header('Content-Type: application/json; charset=utf-8');
 
@@ -1089,6 +1090,77 @@ if ($_SERVER['REQUEST_METHOD'] === 'PATCH') {
         }
 
         echo json_encode($resultat, JSON_UNESCAPED_UNICODE);
+        break;
+
+    case 'notificacions':
+        $token = obtenirTokenAuthorization();
+        $usuari = validarToken($pdo, $token);
+
+        if (!$usuari) {
+            http_response_code(401);
+            echo json_encode([
+                'success' => false,
+                'message' => 'Cal iniciar sessió.'
+            ], JSON_UNESCAPED_UNICODE);
+            break;
+        }
+
+        $metode = $_SERVER['REQUEST_METHOD'];
+        $accio = $_GET['accio'] ?? '';
+
+        if ($metode === 'GET') {
+            $resultat = llistarNotificacions($pdo, $usuari, $_GET);
+
+            if (!$resultat['success']) {
+                http_response_code(400);
+            }
+
+            echo json_encode($resultat, JSON_UNESCAPED_UNICODE);
+            break;
+        }
+
+        if ($metode === 'PATCH') {
+            if ($accio === 'llegir_totes') {
+                $resultat = marcarTotesNotificacionsLlegides(
+                    $pdo,
+                    $usuari
+                );
+            } elseif ($accio === 'llegir') {
+                $notificacioId = filter_input(
+                    INPUT_GET,
+                    'id',
+                    FILTER_VALIDATE_INT
+                );
+
+                $resultat = marcarNotificacioLlegida(
+                    $pdo,
+                    $notificacioId,
+                    $usuari
+                );
+            } else {
+                http_response_code(400);
+                echo json_encode([
+                    'success' => false,
+                    'message' => 'Acció de notificacions no vàlida.'
+                ], JSON_UNESCAPED_UNICODE);
+                break;
+            }
+
+            if (!$resultat['success']) {
+                http_response_code(
+                    str_contains($resultat['message'], 'permisos') ? 403 : 400
+                );
+            }
+
+            echo json_encode($resultat, JSON_UNESCAPED_UNICODE);
+            break;
+        }
+
+        http_response_code(405);
+        echo json_encode([
+            'success' => false,
+            'message' => 'Mètode no permès.'
+        ], JSON_UNESCAPED_UNICODE);
         break;
 
     /*

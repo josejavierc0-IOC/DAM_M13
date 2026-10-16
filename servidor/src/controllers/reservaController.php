@@ -402,11 +402,32 @@ function crearReserva($pdo, $usuari, $dades)
         'hora_fi' => $horaFi,
         'creada_per' => $usuari['id']
     ]);
+    $reservaId = (int) $pdo->lastInsertId();
+
+$stmtSoci = $pdo->prepare(
+    "SELECT usuari_id
+     FROM socis
+     WHERE id = :soci_id"
+);
+
+$stmtSoci->execute(['soci_id' => $sociId]);
+$usuariSociId = $stmtSoci->fetchColumn();
+
+if ($usuariSociId) {
+    crearNotificacio(
+        $pdo,
+        (int) $usuariSociId,
+        $reservaId,
+        'NOVA_RESERVA',
+        'Reserva confirmada',
+        "La reserva núm. {$reservaId} s'ha creat correctament."
+    );
+}
 
     return [
         'success' => true,
         'message' => 'Reserva creada correctament.',
-        'id' => $pdo->lastInsertId(),
+        'id' => $reservaId,
         'preu' => round(
             (float) $tarifa['preu'] * $durada / 60,
             2
@@ -441,9 +462,10 @@ function modificarReserva($pdo, $reservaId, $usuari, $dades)
 
     // Comprovem que la reserva existeix i està confirmada.
     $stmt = $pdo->prepare(
-        "SELECT id, estat
-         FROM reserves
-         WHERE id = :id"
+        "SELECT r.id, r.estat, s.usuari_id
+         FROM reserves r
+         INNER JOIN socis s ON s.id = r.soci_id
+         WHERE r.id = :id"
     );
     $stmt->execute(['id' => $reservaId]);
     $reservaActual = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -529,9 +551,7 @@ function modificarReserva($pdo, $reservaId, $usuari, $dades)
 
     // Comprovem que la pista existeix i està activa.
     $stmt = $pdo->prepare(
-        "SELECT id
-         FROM pistes
-         WHERE id = :id AND activa = 1"
+        "SELECT id FROM pistes WHERE id = :id AND activa = 1"
     );
     $stmt->execute(['id' => $pistaId]);
 
@@ -677,6 +697,17 @@ function modificarReserva($pdo, $reservaId, $usuari, $dades)
         'id' => $reservaId
     ]);
 
+    if ($stmt->rowCount() > 0 && !empty($reservaActual['usuari_id'])) {
+        crearNotificacio(
+            $pdo,
+            (int) $reservaActual['usuari_id'],
+            $reservaId,
+            'MODIFICACIO_RESERVA',
+            'Reserva modificada',
+            "La reserva núm. {$reservaId} ha estat modificada pel personal del club."
+        );
+    }
+
     return [
         'success' => true,
         'message' => 'Reserva modificada correctament.',
@@ -733,6 +764,17 @@ function cancelLarReserva($pdo, $reservaId, $usuari)
     );
 
     $stmt->execute(['id' => $reservaId]);
+
+    if ($stmt->rowCount() > 0 && !empty($reserva['usuari_id'])) {
+        crearNotificacio(
+            $pdo,
+            (int) $reserva['usuari_id'],
+            (int) $reservaId,
+            'CANCEL·LACIO_RESERVA',
+            'Reserva cancel·lada',
+            "La reserva núm. {$reservaId} ha estat cancel·lada."
+        );
+    }
 
     return [
         'success' => true,
