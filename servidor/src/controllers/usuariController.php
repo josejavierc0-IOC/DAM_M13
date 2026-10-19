@@ -15,11 +15,11 @@
 
 
 /**
- * Registrar un nou usuari
+ * Registrar un nou usuari i crear el seu soci associat.
  */
 function registrarUsuari($pdo, $dades)
 {
-    // Comprovem que s'hagin enviat les dades obligatòries
+    // Comprovem les dades obligatòries.
     if (
         empty($dades['nom']) ||
         empty($dades['cognoms']) ||
@@ -33,32 +33,31 @@ function registrarUsuari($pdo, $dades)
     }
 
     try {
-
-        // Comprovem si l'email ja existeix
+        // Evitem registres amb un correu ja existent.
         $sql = "SELECT id FROM usuaris WHERE email = :email";
-
         $stmt = $pdo->prepare($sql);
         $stmt->execute([
-            ':email' => $dades['email']
+            ':email' => trim($dades['email'])
         ]);
 
         if ($stmt->fetch()) {
             return [
                 'success' => false,
-                'message' => 'L\'email ja està registrat'
+                'message' => "L'email ja està registrat"
             ];
         }
 
-        // La contrasenya no es guarda directament.
-        // Es guarda un hash segur.
+        // Els registres públics sempre són usuaris normals.
+        // Es manté el rol 1 que ja utilitzava el teu codi.
+        $rolId = 1;
+
         $passwordHash = password_hash(
             $dades['password'],
             PASSWORD_DEFAULT
         );
 
-        // Els usuaris que es registren públicament sempre són USER.
-        // No permetem que algú es registri com ADMIN.
-        $rolId = 1;
+        // Les dues insercions han de completar-se conjuntament.
+        $pdo->beginTransaction();
 
         $sql = "
             INSERT INTO usuaris
@@ -82,27 +81,70 @@ function registrarUsuari($pdo, $dades)
         ";
 
         $stmt = $pdo->prepare($sql);
-
         $stmt->execute([
             ':rol_id' => $rolId,
-            ':nom' => $dades['nom'],
-            ':cognoms' => $dades['cognoms'],
-            ':email' => $dades['email'],
+            ':nom' => trim($dades['nom']),
+            ':cognoms' => trim($dades['cognoms']),
+            ':email' => trim($dades['email']),
             ':password_hash' => $passwordHash,
-            ':telefon' => $dades['telefon'] ?? null
+            ':telefon' => !empty($dades['telefon'])
+                ? trim($dades['telefon'])
+                : null
         ]);
+
+        // Recuperem l'identificador de l'usuari creat.
+        $usuariId = $pdo->lastInsertId();
+
+        // Generem un número de soci únic.
+        // El format ocupa menys de 30 caràcters.
+        $numeroSoci = 'SOC-' . strtoupper(bin2hex(random_bytes(8)));
+
+        // Creem el soci vinculat a l'usuari.
+        $sql = "
+            INSERT INTO socis
+            (
+                usuari_id,
+                numero_soci,
+                data_alta
+            )
+            VALUES
+            (
+                :usuari_id,
+                :numero_soci,
+                :data_alta
+            )
+        ";
+
+        $stmt = $pdo->prepare($sql);
+        $stmt->execute([
+            ':usuari_id' => $usuariId,
+            ':numero_soci' => $numeroSoci,
+            ':data_alta' => date('Y-m-d')
+        ]);
+
+        // Confirmem les dues insercions.
+        $pdo->commit();
 
         return [
             'success' => true,
-            'message' => 'Usuari registrat correctament',
-            'id' => $pdo->lastInsertId()
+            'message' => 'Usuari i soci registrats correctament',
+            'id' => $usuariId,
+            'numero_soci' => $numeroSoci
         ];
 
-    } catch (PDOException $e) {
+    } catch (Throwable $e) {
+        // Si falla qualsevol operació, desfem la transacció.
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+
+        // L'error detallat queda al registre del servidor,
+        // no es mostra al client.
+        error_log('Error en registrar usuari i soci: ' . $e->getMessage());
 
         return [
             'success' => false,
-            'message' => 'Error en registrar l\'usuari'
+            'message' => "No s'ha pogut completar el registre"
         ];
     }
 }
