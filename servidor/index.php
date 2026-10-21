@@ -553,7 +553,7 @@ switch ($resource) {
             break;
         }
 
-        if (!in_array($metode, ['POST', 'PUT', 'DELETE'], true)) {
+        if (!in_array($metode, ['POST', 'PUT', 'DELETE', 'PATCH'], true)) {
             http_response_code(405);
             echo json_encode([
                 'success' => false,
@@ -567,41 +567,63 @@ switch ($resource) {
             true
         );
 
-        if ($metode === 'POST') {
-            $resultat = crearPista($pdo, $dades);
-        } elseif ($metode === 'PUT') {
-            $id = filter_var(
-                $_GET['id'] ?? null,
-                FILTER_VALIDATE_INT
-            );
+        
+if ($metode === 'POST') {
+    $resultat = crearPista($pdo, $dades);
 
-            if (!$id || $id < 1) {
-                http_response_code(400);
-                echo json_encode([
-                    'success' => false,
-                    'message' => 'Cal indicar l’id de la pista a modificar'
-                ]);
-                break;
-            }
+} elseif ($metode === 'PUT') {
+    $id = filter_var(
+        $_GET['id'] ?? null,
+        FILTER_VALIDATE_INT
+    );
 
-            $resultat = modificarPista($pdo, $id, $dades);
-        } else {
-            $id = filter_var(
-                $_GET['id'] ?? null,
-                FILTER_VALIDATE_INT
-            );
+    if (!$id || $id < 1) {
+        http_response_code(400);
+        echo json_encode([
+            'success' => false,
+            'message' => 'Cal indicar l’id de la pista a modificar'
+        ]);
+        break;
+    }
 
-            if (!$id || $id < 1) {
-                http_response_code(400);
-                echo json_encode([
-                    'success' => false,
-                    'message' => 'Cal indicar l’id de la pista a desactivar'
-                ]);
-                break;
-            }
+    $resultat = modificarPista($pdo, $id, $dades);
 
-            $resultat = desactivarPista($pdo, $id);
-        }
+} elseif ($metode === 'DELETE') {
+    $id = filter_var(
+        $_GET['id'] ?? null,
+        FILTER_VALIDATE_INT
+    );
+
+    if (!$id || $id < 1) {
+        http_response_code(400);
+        echo json_encode([
+            'success' => false,
+            'message' => 'Cal indicar l’id de la pista a desactivar'
+        ]);
+        break;
+    }
+
+    $resultat = desactivarPista($pdo, $id);
+
+} else {
+    // PATCH: reactivar una pista desactivada.
+    $id = filter_var(
+        $_GET['id'] ?? null,
+        FILTER_VALIDATE_INT
+    );
+
+    if (!$id || $id < 1) {
+        http_response_code(400);
+        echo json_encode([
+            'success' => false,
+            'message' => 'Cal indicar l’id de la pista a activar'
+        ]);
+        break;
+    }
+
+    $resultat = activarPista($pdo, $id);
+}
+
 
         if (!$resultat['success']) {
             http_response_code(400);

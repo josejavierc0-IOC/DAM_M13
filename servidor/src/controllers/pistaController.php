@@ -149,6 +149,36 @@ function desactivarPista($pdo, $pistaId)
 }
 
 
+/**
+ * Reactiva una pista que estava desactivada.
+ */
+function activarPista($pdo, $pistaId)
+{
+    try {
+        if (!existeixPista($pdo, $pistaId)) {
+            return [
+                'success' => false,
+                'message' => 'Pista no trobada'
+            ];
+        }
+
+        $sql = "UPDATE pistes SET activa = 1 WHERE id = :id";
+        $stmt = $pdo->prepare($sql);
+        $stmt->execute([':id' => $pistaId]);
+
+        return [
+            'success' => true,
+            'message' => 'Pista activada correctament'
+        ];
+    } catch (PDOException $e) {
+        return [
+            'success' => false,
+            'message' => 'Error en activar la pista'
+        ];
+    }
+}
+
+
 // Consulta els horaris d'una pista.
 function llistarHorarisPista($pdo, $pistaId)
 {
