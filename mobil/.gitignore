@@ -1,0 +1,32 @@
+# Fitxers de configuració locals
+local.properties
+*.iml
+
+# Gradle
+.gradle/
+build/
+**/build/
+
+# Android Studio
+.idea/
+.idea/caches/
+.idea/libraries/
+.idea/modules.xml
+.idea/workspace.xml
+.idea/navEditor.xml
+.idea/assetWizardSettings.xml
+.idea/deploymentTargetSelector.xml
+
+# Fitxers temporals i del sistema
+.DS_Store
+captures/
+.externalNativeBuild/
+.cxx/
+
+# Fitxers generats
+*.apk
+*.aab
+*.class
+
+# Registres
+*.log
