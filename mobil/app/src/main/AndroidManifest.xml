@@ -27,6 +27,18 @@
             android:exported="false" />
 
         <activity
+            android:name=".PistesActivity"
+            android:exported="false" />
+
+        <activity
+            android:name=".ReservaActivity"
+            android:exported="false" />
+
+        <activity
+            android:name=".LesMevesReservesActivity"
+            android:exported="false" />
+
+        <activity
             android:name=".HomeActivity"
             android:exported="false" />
 

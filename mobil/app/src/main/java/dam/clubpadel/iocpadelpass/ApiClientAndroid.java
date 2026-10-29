@@ -83,6 +83,57 @@ public class ApiClientAndroid {
     }
 
     /**
+     * Consultar les pistes del club.
+     *
+     * La petició necessita el token de sessió de l'usuari.
+     */
+    public static JSONObject llistarPistes(
+            String token
+    ) throws Exception {
+
+        return enviarGet("pistes", token);
+    }
+
+    /**
+     * Enviar una petició GET autenticada al servidor.
+     */
+    private static JSONObject enviarGet(
+            String recurs,
+            String token
+    ) throws Exception {
+
+        HttpURLConnection connexio = null;
+
+        try {
+            URL url = new URL(BASE_URL + "?resource=" + recurs);
+
+            connexio = (HttpURLConnection) url.openConnection();
+            connexio.setRequestMethod("GET");
+            connexio.setConnectTimeout(10000);
+            connexio.setReadTimeout(10000);
+
+            connexio.setRequestProperty(
+                    "Accept",
+                    "application/json"
+            );
+
+            if (token != null && !token.trim().isEmpty()) {
+                connexio.setRequestProperty(
+                        "Authorization",
+                        "Bearer " + token.trim()
+                );
+            }
+
+            return llegirResposta(connexio);
+
+        } finally {
+            if (connexio != null) {
+                connexio.disconnect();
+            }
+        }
+    }
+
+    /**
      * Mètode compartit per enviar peticions POST al servidor.
      */
     private static JSONObject enviarPost(
@@ -120,54 +171,77 @@ public class ApiClientAndroid {
                 sortida.flush();
             }
 
-            int codiResposta = connexio.getResponseCode();
-
-            InputStream flux;
-
-            if (codiResposta >= 200 && codiResposta < 400) {
-                flux = connexio.getInputStream();
-            } else {
-                flux = connexio.getErrorStream();
-            }
-
-            if (flux == null) {
-                throw new Exception(
-                        "El servidor no ha retornat cap resposta. Codi HTTP: "
-                                + codiResposta
-                );
-            }
-
-            StringBuilder resposta = new StringBuilder();
-
-            try (
-                    BufferedReader lector = new BufferedReader(
-                            new InputStreamReader(
-                                    flux,
-                                    StandardCharsets.UTF_8
-                            )
-                    )
-            ) {
-                String linia;
-
-                while ((linia = lector.readLine()) != null) {
-                    resposta.append(linia);
-                }
-            }
-
-            try {
-                return new JSONObject(resposta.toString());
-            } catch (Exception e) {
-                throw new Exception(
-                        "La resposta del servidor no és un JSON vàlid. "
-                                + "Codi HTTP: " + codiResposta
-                                + ". Resposta: " + resposta
-                );
-            }
+            return llegirResposta(connexio);
 
         } finally {
             if (connexio != null) {
                 connexio.disconnect();
             }
         }
+    }
+
+    /**
+     * Llegir i convertir la resposta HTTP a un JSONObject.
+     *
+     * També llegeix les respostes d'error del servidor perquè
+     * l'aplicació pugui mostrar-ne el missatge.
+     */
+    private static JSONObject llegirResposta(
+            HttpURLConnection connexio
+    ) throws Exception {
+
+        int codiResposta = connexio.getResponseCode();
+
+        InputStream flux;
+
+        if (codiResposta >= 200 && codiResposta < 400) {
+            flux = connexio.getInputStream();
+        } else {
+            flux = connexio.getErrorStream();
+        }
+
+        if (flux == null) {
+            throw new Exception(
+                    "El servidor no ha retornat cap resposta. "
+                            + "Codi HTTP: " + codiResposta
+            );
+        }
+
+        StringBuilder resposta = new StringBuilder();
+
+        try (
+                BufferedReader lector = new BufferedReader(
+                        new InputStreamReader(
+                                flux,
+                                StandardCharsets.UTF_8
+                        )
+                )
+        ) {
+            String linia;
+
+            while ((linia = lector.readLine()) != null) {
+                resposta.append(linia);
+            }
+        }
+
+        JSONObject resultat;
+
+        try {
+            resultat = new JSONObject(resposta.toString());
+        } catch (Exception e) {
+            throw new Exception(
+                    "La resposta del servidor no és un JSON vàlid. "
+                            + "Codi HTTP: " + codiResposta
+                            + ". Resposta: " + resposta
+            );
+        }
+
+        /*
+         * Afegim el codi HTTP a la resposta per poder identificar
+         * errors d'autenticació o altres errors HTTP.
+         */
+        resultat.put("_http_code", codiResposta);
+
+        return resultat;
     }
 }

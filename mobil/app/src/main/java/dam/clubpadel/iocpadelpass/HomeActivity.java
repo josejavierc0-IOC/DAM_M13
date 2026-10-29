@@ -11,7 +11,6 @@ import android.view.ViewGroup;
 import android.widget.Button;
 import android.widget.LinearLayout;
 import android.widget.TextView;
-import android.widget.Toast;
 
 public class HomeActivity extends Activity {
 
@@ -29,7 +28,7 @@ public class HomeActivity extends Activity {
         String token = preferences.getString("token", "");
 
         // Si no hi ha token, tornem al login.
-        if (token.isEmpty()) {
+        if (token == null || token.trim().isEmpty()) {
             tornarAlLogin();
             return;
         }
@@ -57,9 +56,7 @@ public class HomeActivity extends Activity {
         titol.setGravity(Gravity.CENTER);
 
         TextView benvinguda = new TextView(this);
-        benvinguda.setText(
-                "Benvingut/da, " + nom + " " + cognoms
-        );
+        benvinguda.setText("Benvingut/da, " + nom + " " + cognoms);
         benvinguda.setTextSize(22);
         benvinguda.setTextColor(Color.WHITE);
         benvinguda.setGravity(Gravity.CENTER);
@@ -71,14 +68,60 @@ public class HomeActivity extends Activity {
         rolUsuari.setTextColor(Color.LTGRAY);
         rolUsuari.setGravity(Gravity.CENTER);
 
-        Button btnReserves = new Button(this);
-        btnReserves.setText("Les meves reserves");
+        Button btnReservar = new Button(this);
+        btnReservar.setText("Reservar una pista");
+
+        Button btnLesMevesReserves = new Button(this);
+        btnLesMevesReserves.setText("Les meves reserves");
 
         Button btnPistes = new Button(this);
         btnPistes.setText("Consultar pistes");
 
         Button btnTancarSessio = new Button(this);
         btnTancarSessio.setText("Tancar sessió");
+
+        principal.addView(titol, crearParametres());
+        principal.addView(benvinguda, crearParametres());
+        principal.addView(rolUsuari, crearParametres());
+        principal.addView(btnReservar, crearParametres());
+        principal.addView(btnLesMevesReserves, crearParametres());
+        principal.addView(btnPistes, crearParametres());
+        principal.addView(btnTancarSessio, crearParametres());
+
+        // Obrir la pantalla per crear una reserva.
+        btnReservar.setOnClickListener(v -> {
+            Intent intent = new Intent(
+                    HomeActivity.this,
+                    ReservaActivity.class
+            );
+            startActivity(intent);
+        });
+
+        // Obrir la pantalla amb les reserves de l'usuari.
+        btnLesMevesReserves.setOnClickListener(v -> {
+            Intent intent = new Intent(
+                    HomeActivity.this,
+                    LesMevesReservesActivity.class
+            );
+            startActivity(intent);
+        });
+
+        // Obrir la pantalla de consulta de pistes.
+        btnPistes.setOnClickListener(v -> {
+            Intent intent = new Intent(
+                    HomeActivity.this,
+                    PistesActivity.class
+            );
+            startActivity(intent);
+        });
+
+        // Tancar la sessió.
+        btnTancarSessio.setOnClickListener(v -> tancarSessio());
+
+        setContentView(principal);
+    }
+
+    private LinearLayout.LayoutParams crearParametres() {
 
         LinearLayout.LayoutParams params =
                 new LinearLayout.LayoutParams(
@@ -88,47 +131,23 @@ public class HomeActivity extends Activity {
 
         params.setMargins(0, 16, 0, 0);
 
-        principal.addView(titol, params);
-        principal.addView(benvinguda, params);
-        principal.addView(rolUsuari, params);
-        principal.addView(btnReserves, params);
-        principal.addView(btnPistes, params);
-        principal.addView(btnTancarSessio, params);
-
-        btnReserves.setOnClickListener(v ->
-                Toast.makeText(
-                        this,
-                        "Prepararem la pantalla de reserves.",
-                        Toast.LENGTH_SHORT
-                ).show()
-        );
-
-        btnPistes.setOnClickListener(v ->
-                Toast.makeText(
-                        this,
-                        "Prepararem la consulta de pistes.",
-                        Toast.LENGTH_SHORT
-                ).show()
-        );
-
-        btnTancarSessio.setOnClickListener(v -> tancarSessio());
-
-        setContentView(principal);
+        return params;
     }
 
     private void tancarSessio() {
 
-        // De moment tanquem la sessió local.
-        // Al pas següent també revocarem el token al servidor.
-
-        preferences.edit().clear().commit();
+        // Esborrem les dades locals de la sessió.
+        preferences.edit().clear().apply();
 
         tornarAlLogin();
     }
 
     private void tornarAlLogin() {
 
-        Intent intent = new Intent(this, MainActivityJava.class);
+        Intent intent = new Intent(
+                HomeActivity.this,
+                MainActivityJava.class
+        );
 
         intent.setFlags(
                 Intent.FLAG_ACTIVITY_NEW_TASK
