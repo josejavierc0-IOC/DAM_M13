@@ -74,18 +74,29 @@ public class HomeActivity extends Activity {
         Button btnLesMevesReserves = new Button(this);
         btnLesMevesReserves.setText("Les meves reserves");
 
+        // Botó per consultar les notificacions.
+        Button btnNotificacions = new Button(this);
+        btnNotificacions.setText("Les meves notificacions");
+
         Button btnPistes = new Button(this);
         btnPistes.setText("Consultar pistes");
+
+        // Botó per consultar les tarifes.
+        Button btnTarifes = new Button(this);
+        btnTarifes.setText("Consultar tarifes");
 
         Button btnTancarSessio = new Button(this);
         btnTancarSessio.setText("Tancar sessió");
 
+        // Afegim els elements al menú.
         principal.addView(titol, crearParametres());
         principal.addView(benvinguda, crearParametres());
         principal.addView(rolUsuari, crearParametres());
         principal.addView(btnReservar, crearParametres());
         principal.addView(btnLesMevesReserves, crearParametres());
+        principal.addView(btnNotificacions, crearParametres());
         principal.addView(btnPistes, crearParametres());
+        principal.addView(btnTarifes, crearParametres());
         principal.addView(btnTancarSessio, crearParametres());
 
         // Obrir la pantalla per crear una reserva.
@@ -106,11 +117,29 @@ public class HomeActivity extends Activity {
             startActivity(intent);
         });
 
+        // Obrir la pantalla de notificacions.
+        btnNotificacions.setOnClickListener(v -> {
+            Intent intent = new Intent(
+                    HomeActivity.this,
+                    NotificacionsActivity.class
+            );
+            startActivity(intent);
+        });
+
         // Obrir la pantalla de consulta de pistes.
         btnPistes.setOnClickListener(v -> {
             Intent intent = new Intent(
                     HomeActivity.this,
                     PistesActivity.class
+            );
+            startActivity(intent);
+        });
+
+        // Obrir la pantalla de consulta de tarifes.
+        btnTarifes.setOnClickListener(v -> {
+            Intent intent = new Intent(
+                    HomeActivity.this,
+                    TarifesActivity.class
             );
             startActivity(intent);
         });

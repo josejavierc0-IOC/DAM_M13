@@ -39,6 +39,16 @@
             android:exported="false" />
 
         <activity
+            android:name=".TarifesActivity"
+            android:exported="false" />
+
+
+        <activity
+            android:name=".NotificacionsActivity"
+            android:exported="false" />
+
+
+        <activity
             android:name=".HomeActivity"
             android:exported="false" />
 
