@@ -1,24 +1,41 @@
-
 <?php
 
-// Comprova que la pista existeix.
 function existeixPistaIncidencia($pdo, $pistaId)
 {
-    $sql = "SELECT id FROM pistes WHERE id = :id";
-    $stmt = $pdo->prepare($sql);
+    $stmt = $pdo->prepare("SELECT id FROM pistes WHERE id = :id");
     $stmt->execute(['id' => $pistaId]);
-
     return $stmt->fetch(PDO::FETCH_ASSOC) !== false;
 }
 
-// Comprova que un usuari existeix.
 function existeixUsuariIncidencia($pdo, $usuariId)
 {
-    $sql = "SELECT id FROM usuaris WHERE id = :id";
-    $stmt = $pdo->prepare($sql);
+    $stmt = $pdo->prepare("SELECT id FROM usuaris WHERE id = :id");
     $stmt->execute(['id' => $usuariId]);
-
     return $stmt->fetch(PDO::FETCH_ASSOC) !== false;
+}
+
+/**
+ * Crea una notificació GENERAL sense fer fallar l'operació d'incidència
+ * si, per algun motiu, no es pot desar la notificació.
+ */
+function crearNotificacioIncidenciaSegura($pdo, $usuariId, $titol, $missatge)
+{
+    if (!$usuariId || !function_exists('crearNotificacio')) {
+        return false;
+    }
+
+    try {
+        return crearNotificacio(
+            $pdo,
+            (int) $usuariId,
+            null,
+            'GENERAL',
+            $titol,
+            $missatge
+        );
+    } catch (Throwable $e) {
+        return false;
+    }
 }
 
 // Consulta totes les incidències, amb el nom de la pista.
@@ -53,18 +70,14 @@ function llistarIncidencies($pdo)
     }
 }
 
-// Registra una incidència.
+// Registra una incidència i notifica l'administrador que l'ha creada.
 function crearIncidencia($pdo, $usuariId, $dades)
 {
     $pistaId = $dades['pista_id'] ?? null;
     $descripcio = trim($dades['descripcio'] ?? '');
     $dataInici = $dades['data_inici'] ?? '';
 
-    if (
-        !$pistaId ||
-        $descripcio === '' ||
-        $dataInici === ''
-    ) {
+    if (!$pistaId || $descripcio === '' || $dataInici === '') {
         return [
             'success' => false,
             'message' => 'Cal indicar pista, descripció i data d’inici'
@@ -78,7 +91,6 @@ function crearIncidencia($pdo, $usuariId, $dades)
         ];
     }
 
-    // Validem el format de la data.
     $data = DateTime::createFromFormat('Y-m-d H:i:s', $dataInici)
         ?: DateTime::createFromFormat('Y-m-d\TH:i', $dataInici);
 
@@ -90,8 +102,6 @@ function crearIncidencia($pdo, $usuariId, $dades)
     }
 
     $dataIniciSQL = $data->format('Y-m-d H:i:s');
-
-    // La data final és opcional.
     $dataFi = $dades['data_fi'] ?? null;
     $dataFiSQL = null;
 
@@ -131,10 +141,25 @@ function crearIncidencia($pdo, $usuariId, $dades)
             'data_fi' => $dataFiSQL
         ]);
 
+        $incidenciaId = (int) $pdo->lastInsertId();
+
+        $stmtPista = $pdo->prepare("SELECT nom FROM pistes WHERE id = :id");
+        $stmtPista->execute(['id' => $pistaId]);
+        $pista = $stmtPista->fetch(PDO::FETCH_ASSOC);
+        $nomPista = $pista['nom'] ?? ('ID ' . $pistaId);
+
+        crearNotificacioIncidenciaSegura(
+            $pdo,
+            $usuariId,
+            'Nova incidència registrada',
+            'S’ha registrat la incidència #' . $incidenciaId .
+                ' a la pista ' . $nomPista . '. Descripció: ' . $descripcio
+        );
+
         return [
             'success' => true,
             'message' => 'Incidència creada correctament',
-            'id' => $pdo->lastInsertId()
+            'id' => $incidenciaId
         ];
     } catch (PDOException $e) {
         return [
@@ -233,10 +258,26 @@ function modificarIncidencia($pdo, $incidenciaId, $dades)
     }
 }
 
-// Marca una incidència com a resolta.
-function resoldreIncidencia($pdo, $incidenciaId)
+// Resol una incidència i notifica l'administrador que l'ha resolta.
+function resoldreIncidencia($pdo, $incidenciaId, $usuariId = null)
 {
     try {
+        $consulta = $pdo->prepare(
+            "SELECT i.id, i.descripcio, p.nom AS pista
+             FROM incidencies i
+             INNER JOIN pistes p ON p.id = i.pista_id
+             WHERE i.id = :id AND i.estat = 'OBERTA'"
+        );
+        $consulta->execute(['id' => $incidenciaId]);
+        $incidencia = $consulta->fetch(PDO::FETCH_ASSOC);
+
+        if (!$incidencia) {
+            return [
+                'success' => false,
+                'message' => 'Incidència inexistent o ja resolta'
+            ];
+        }
+
         $sql = "UPDATE incidencies
                 SET estat = 'RESOLTA',
                     data_fi = COALESCE(data_fi, NOW())
@@ -251,6 +292,16 @@ function resoldreIncidencia($pdo, $incidenciaId)
                 'message' => 'Incidència inexistent o ja resolta'
             ];
         }
+
+        crearNotificacioIncidenciaSegura(
+            $pdo,
+            $usuariId,
+            'Incidència resolta',
+            'La incidència #' . $incidencia['id'] .
+                ' de la pista ' . $incidencia['pista'] .
+                ' s’ha marcat com a resolta. Descripció: ' .
+                $incidencia['descripcio']
+        );
 
         return [
             'success' => true,

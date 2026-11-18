@@ -1,21 +1,79 @@
 
 <?php
 // Controlador de reserves d'IOC Padel Pass.
-// Gestiona la creació, consulta i cancel·lació de reserves.
+// Gestiona la creació, consulta, modificació, cancel·lació i pagament de reserves.
 
 /**
  * Busca el soci associat a un usuari.
  */
 function obtenirSociUsuari($pdo, $usuariId)
 {
-    $sql = "SELECT id
-            FROM socis
-            WHERE usuari_id = :usuari_id";
+    $stmt = $pdo->prepare(
+        "SELECT id
+         FROM socis
+         WHERE usuari_id = :usuari_id
+         LIMIT 1"
+    );
 
-    $stmt = $pdo->prepare($sql);
     $stmt->execute(['usuari_id' => $usuariId]);
 
     return $stmt->fetch(PDO::FETCH_ASSOC);
+}
+
+/**
+ * Crea una notificació si el controlador està carregat.
+ * La notificació s'adreça al propietari de la reserva.
+ */
+function notificarReservaSiDisponible(
+    $pdo,
+    $usuariId,
+    $reservaId,
+    $tipus,
+    $titol,
+    $missatge
+) {
+    if (!function_exists('crearNotificacio')) {
+        error_log(
+            'No s\'ha pogut crear la notificació: ' .
+            'la funció crearNotificacio() no està carregada.'
+        );
+        return false;
+    }
+
+    try {
+        return crearNotificacio(
+            $pdo,
+            (int) $usuariId,
+            $reservaId === null ? null : (int) $reservaId,
+            $tipus,
+            $titol,
+            $missatge
+        );
+    } catch (Throwable $e) {
+        // Una fallada de notificació no ha de desfer una reserva.
+        error_log('Error creant notificació de reserva: ' . $e->getMessage());
+        return false;
+    }
+}
+
+/**
+ * Obté l'usuari propietari d'una reserva.
+ */
+function obtenirPropietariReserva($pdo, $reservaId)
+{
+    $stmt = $pdo->prepare(
+        "SELECT s.usuari_id
+         FROM reserves r
+         INNER JOIN socis s ON s.id = r.soci_id
+         WHERE r.id = :id
+         LIMIT 1"
+    );
+
+    $stmt->execute(['id' => $reservaId]);
+
+    $resultat = $stmt->fetch(PDO::FETCH_ASSOC);
+
+    return $resultat ? (int) $resultat['usuari_id'] : null;
 }
 
 /**
@@ -23,12 +81,48 @@ function obtenirSociUsuari($pdo, $usuariId)
  */
 function dataReservaValida($data)
 {
-    $dataObjecte = DateTime::createFromFormat('!Y-m-d', $data);
+    if (!is_string($data) || $data === '') {
+        return false;
+    }
 
-    return $dataObjecte &&
-        $dataObjecte->format('Y-m-d') === $data;
+    $dataObjecte = DateTime::createFromFormat('!Y-m-d', $data);
+    $errors = DateTime::getLastErrors();
+
+    return $dataObjecte !== false
+        && ($errors === false
+            || ($errors['warning_count'] === 0
+                && $errors['error_count'] === 0))
+        && $dataObjecte->format('Y-m-d') === $data;
 }
 
+/**
+ * Valida i normalitza una hora al format HH:MM:SS.
+ */
+function normalitzarHoraReserva($hora)
+{
+    if (!is_string($hora)
+        || !preg_match('/^\d{2}:\d{2}(:\d{2})?$/', $hora)) {
+        return false;
+    }
+
+    if (strlen($hora) === 5) {
+        $hora .= ':00';
+    }
+
+    $objecte = DateTime::createFromFormat('!H:i:s', $hora);
+    $errors = DateTime::getLastErrors();
+
+    if (
+        !$objecte
+        || ($errors !== false
+            && ($errors['warning_count'] > 0 || $errors['error_count'] > 0))
+        || $objecte->format('H:i:s') !== $hora
+    ) {
+        return false;
+    }
+
+    return $hora;
+}
 
 /**
  * Consulta les reserves pròpies d'un usuari.
@@ -39,11 +133,9 @@ function llistarReserves($pdo, $usuari)
 {
     $esAdmin = ($usuari['rol'] ?? '') === 'ADMIN';
 
-    // Llegim els filtres opcionals.
     $data = $_GET['data'] ?? null;
     $pistaId = $_GET['pista_id'] ?? null;
 
-    // Validem la data si s'ha indicat.
     if ($data !== null && !dataReservaValida($data)) {
         return [
             'success' => false,
@@ -51,7 +143,6 @@ function llistarReserves($pdo, $usuari)
         ];
     }
 
-    // Validem l'identificador de pista si s'ha indicat.
     if ($pistaId !== null) {
         $pistaId = filter_var($pistaId, FILTER_VALIDATE_INT);
 
@@ -63,7 +154,6 @@ function llistarReserves($pdo, $usuari)
         }
     }
 
-    // Consulta comuna per a administradors i socis.
     $sql = "SELECT r.*, p.nom AS pista_nom,
                    s.numero_soci,
                    u.nom AS usuari_nom,
@@ -76,7 +166,6 @@ function llistarReserves($pdo, $usuari)
 
     $parametres = [];
 
-    // Els usuaris normals només poden veure les seves reserves.
     if (!$esAdmin) {
         $soci = obtenirSociUsuari($pdo, $usuari['id']);
 
@@ -88,22 +177,19 @@ function llistarReserves($pdo, $usuari)
         }
 
         $sql .= " AND r.soci_id = :soci_id";
-        $parametres['soci_id'] = $soci['id'];
+        $parametres['soci_id'] = (int) $soci['id'];
     }
 
-    // Apliquem el filtre per data, si s'ha indicat.
     if ($data !== null) {
         $sql .= " AND r.data_reserva = :data";
         $parametres['data'] = $data;
     }
 
-    // Apliquem el filtre per pista, si s'ha indicat.
     if ($pistaId !== null) {
         $sql .= " AND r.pista_id = :pista_id";
         $parametres['pista_id'] = $pistaId;
     }
 
-    // Ordenem les reserves per data i hora.
     $sql .= " ORDER BY r.data_reserva DESC, r.hora_inici DESC";
 
     $stmt = $pdo->prepare($sql);
@@ -122,15 +208,15 @@ function llistarReserves($pdo, $usuari)
 function consultarReserva($pdo, $reservaId, $usuari)
 {
     $sql = "SELECT r.*, p.nom AS pista_nom,
-               s.numero_soci,
-               s.usuari_id AS usuari_id,
-               u.nom AS usuari_nom,
-               u.cognoms AS usuari_cognoms
-        FROM reserves r
-        INNER JOIN pistes p ON p.id = r.pista_id
-        INNER JOIN socis s ON s.id = r.soci_id
-        INNER JOIN usuaris u ON u.id = s.usuari_id
-        WHERE r.id = :id";
+                   s.numero_soci,
+                   s.usuari_id AS usuari_id,
+                   u.nom AS usuari_nom,
+                   u.cognoms AS usuari_cognoms
+            FROM reserves r
+            INNER JOIN pistes p ON p.id = r.pista_id
+            INNER JOIN socis s ON s.id = r.soci_id
+            INNER JOIN usuaris u ON u.id = s.usuari_id
+            WHERE r.id = :id";
 
     $stmt = $pdo->prepare($sql);
     $stmt->execute(['id' => $reservaId]);
@@ -144,10 +230,12 @@ function consultarReserva($pdo, $reservaId, $usuari)
         ];
     }
 
-    // Només un ADMIN o el propietari pot consultar-la.
     $esAdmin = ($usuari['rol'] ?? '') === 'ADMIN';
 
-    if (!$esAdmin && (int) $reserva['usuari_id'] !== (int) $usuari['id']) {
+    if (
+        !$esAdmin
+        && (int) $reserva['usuari_id'] !== (int) $usuari['id']
+    ) {
         return [
             'success' => false,
             'message' => 'No tens permís per consultar aquesta reserva.'
@@ -177,28 +265,20 @@ function crearReserva($pdo, $usuari, $dades)
     );
 
     $data = $dades['data_reserva'] ?? '';
-    $horaInici = $dades['hora_inici'] ?? '';
-    $horaFi = $dades['hora_fi'] ?? '';
+    $horaInici = normalitzarHoraReserva($dades['hora_inici'] ?? '');
+    $horaFi = normalitzarHoraReserva($dades['hora_fi'] ?? '');
 
     if (
-        !$pistaId || !$tarifaId ||
-        !dataReservaValida($data) ||
-        !preg_match('/^\d{2}:\d{2}(:\d{2})?$/', $horaInici) ||
-        !preg_match('/^\d{2}:\d{2}(:\d{2})?$/', $horaFi)
+        !$pistaId || $pistaId < 1
+        || !$tarifaId || $tarifaId < 1
+        || !dataReservaValida($data)
+        || $horaInici === false
+        || $horaFi === false
     ) {
         return [
             'success' => false,
             'message' => 'Les dades de la reserva no són vàlides.'
         ];
-    }
-
-    // Normalitzem les hores al format HH:MM:SS.
-    if (strlen($horaInici) === 5) {
-        $horaInici .= ':00';
-    }
-
-    if (strlen($horaFi) === 5) {
-        $horaFi .= ':00';
     }
 
     if ($horaInici >= $horaFi) {
@@ -208,7 +288,6 @@ function crearReserva($pdo, $usuari, $dades)
         ];
     }
 
-    // No permetem reservar dates o hores que ja han passat.
     $inici = DateTime::createFromFormat(
         '!Y-m-d H:i:s',
         "$data $horaInici"
@@ -223,24 +302,36 @@ function crearReserva($pdo, $usuari, $dades)
 
     $esAdmin = ($usuari['rol'] ?? '') === 'ADMIN';
 
-    // Un usuari normal només pot reservar per a ell mateix.
+    // Determinem el soci propietari de la reserva.
     if ($esAdmin && !empty($dades['soci_id'])) {
         $sociId = filter_var(
             $dades['soci_id'],
             FILTER_VALIDATE_INT
         );
 
+        if (!$sociId || $sociId < 1) {
+            return [
+                'success' => false,
+                'message' => 'L’identificador del soci no és vàlid.'
+            ];
+        }
+
         $stmt = $pdo->prepare(
-            "SELECT id FROM socis WHERE id = :id"
+            "SELECT id, usuari_id
+             FROM socis
+             WHERE id = :id"
         );
         $stmt->execute(['id' => $sociId]);
+        $soci = $stmt->fetch(PDO::FETCH_ASSOC);
 
-        if (!$sociId || !$stmt->fetch()) {
+        if (!$soci) {
             return [
                 'success' => false,
                 'message' => 'El soci indicat no existeix.'
             ];
         }
+
+        $usuariDestinatari = (int) $soci['usuari_id'];
     } else {
         $soci = obtenirSociUsuari($pdo, $usuari['id']);
 
@@ -251,12 +342,15 @@ function crearReserva($pdo, $usuari, $dades)
             ];
         }
 
-        $sociId = $soci['id'];
+        $sociId = (int) $soci['id'];
+        $usuariDestinatari = (int) $usuari['id'];
     }
 
     // Comprovem que la pista existeix i està activa.
     $stmt = $pdo->prepare(
-        "SELECT id FROM pistes WHERE id = :id AND activa = 1"
+        "SELECT id
+         FROM pistes
+         WHERE id = :id AND activa = 1"
     );
     $stmt->execute(['id' => $pistaId]);
 
@@ -292,7 +386,7 @@ function crearReserva($pdo, $usuari, $dades)
         ];
     }
 
-    // La durada ha de coincidir amb la tarifa seleccionada.
+    // La durada ha de coincidir amb la tarifa.
     $minutsInici = strtotime("1970-01-01 $horaInici");
     $minutsFi = strtotime("1970-01-01 $horaFi");
     $durada = ($minutsFi - $minutsInici) / 60;
@@ -304,7 +398,7 @@ function crearReserva($pdo, $usuari, $dades)
         ];
     }
 
-    // Comprovem que la reserva està dins de l'horari de la pista.
+    // Comprovem l'horari de la pista.
     $diaSetmana = (int) (new DateTime($data))->format('N');
 
     $stmt = $pdo->prepare(
@@ -332,7 +426,7 @@ function crearReserva($pdo, $usuari, $dades)
         ];
     }
 
-    // Una reserva confirmada no pot coincidir amb una altra.
+    // Comprovem que no hi hagi una reserva coincident.
     $stmt = $pdo->prepare(
         "SELECT id
          FROM reserves
@@ -358,7 +452,7 @@ function crearReserva($pdo, $usuari, $dades)
         ];
     }
 
-    // Una incidència oberta tampoc permet reservar aquella franja.
+    // Una incidència oberta impedeix reservar aquella franja.
     $stmt = $pdo->prepare(
         "SELECT id
          FROM incidencies
@@ -382,17 +476,18 @@ function crearReserva($pdo, $usuari, $dades)
         ];
     }
 
-    // Creem la reserva. El pagament serà presencial.
-    $sql = "INSERT INTO reserves
-                (soci_id, pista_id, tarifa_id,
-                 data_reserva, hora_inici, hora_fi,
-                 estat, pagament_estat, pagament_metode, creada_per)
-            VALUES
-                (:soci_id, :pista_id, :tarifa_id,
-                 :data, :hora_inici, :hora_fi,
-                 'CONFIRMADA', 'PENDENT', 'PRESENCIAL', :creada_per)";
+    // Creem la reserva.
+    $stmt = $pdo->prepare(
+        "INSERT INTO reserves
+            (soci_id, pista_id, tarifa_id,
+             data_reserva, hora_inici, hora_fi,
+             estat, pagament_estat, pagament_metode, creada_per)
+         VALUES
+            (:soci_id, :pista_id, :tarifa_id,
+             :data, :hora_inici, :hora_fi,
+             'CONFIRMADA', 'PENDENT', 'PRESENCIAL', :creada_per)"
+    );
 
-    $stmt = $pdo->prepare($sql);
     $stmt->execute([
         'soci_id' => $sociId,
         'pista_id' => $pistaId,
@@ -402,27 +497,19 @@ function crearReserva($pdo, $usuari, $dades)
         'hora_fi' => $horaFi,
         'creada_per' => $usuari['id']
     ]);
+
     $reservaId = (int) $pdo->lastInsertId();
 
-$stmtSoci = $pdo->prepare(
-    "SELECT usuari_id
-     FROM socis
-     WHERE id = :soci_id"
-);
-
-$stmtSoci->execute(['soci_id' => $sociId]);
-$usuariSociId = $stmtSoci->fetchColumn();
-
-if ($usuariSociId) {
-    crearNotificacio(
+    // Notifiquem el propietari de la reserva, no necessàriament
+    // l'administrador que l'ha creat.
+    notificarReservaSiDisponible(
         $pdo,
-        (int) $usuariSociId,
+        $usuariDestinatari,
         $reservaId,
         'NOVA_RESERVA',
-        'Reserva confirmada',
-        "La reserva núm. {$reservaId} s'ha creat correctament."
+        'Nova reserva creada',
+        "S'ha creat una reserva per al dia $data, de $horaInici a $horaFi."
     );
-}
 
     return [
         'success' => true,
@@ -435,14 +522,12 @@ if ($usuariSociId) {
     ];
 }
 
-
 /**
  * Modifica una reserva existent.
  * Només l'administrador pot modificar reserves confirmades.
  */
 function modificarReserva($pdo, $reservaId, $usuari, $dades)
 {
-    // Només els administradors poden modificar reserves.
     if (($usuari['rol'] ?? '') !== 'ADMIN') {
         return [
             'success' => false,
@@ -450,7 +535,6 @@ function modificarReserva($pdo, $reservaId, $usuari, $dades)
         ];
     }
 
-    // Validem l'identificador de la reserva.
     $reservaId = filter_var($reservaId, FILTER_VALIDATE_INT);
 
     if (!$reservaId || $reservaId < 1) {
@@ -460,9 +544,10 @@ function modificarReserva($pdo, $reservaId, $usuari, $dades)
         ];
     }
 
-    // Comprovem que la reserva existeix i està confirmada.
+    // Obtenim la reserva i el propietari per notificar-lo després.
     $stmt = $pdo->prepare(
-        "SELECT r.id, r.estat, s.usuari_id
+        "SELECT r.id, r.estat, r.data_reserva, r.hora_inici,
+                r.hora_fi, s.usuari_id
          FROM reserves r
          INNER JOIN socis s ON s.id = r.soci_id
          WHERE r.id = :id"
@@ -484,7 +569,6 @@ function modificarReserva($pdo, $reservaId, $usuari, $dades)
         ];
     }
 
-    // Llegim i validem les dades noves.
     $pistaId = filter_var(
         $dades['pista_id'] ?? null,
         FILTER_VALIDATE_INT
@@ -496,14 +580,15 @@ function modificarReserva($pdo, $reservaId, $usuari, $dades)
     );
 
     $data = $dades['data_reserva'] ?? '';
-    $horaInici = $dades['hora_inici'] ?? '';
-    $horaFi = $dades['hora_fi'] ?? '';
+    $horaInici = normalitzarHoraReserva($dades['hora_inici'] ?? '');
+    $horaFi = normalitzarHoraReserva($dades['hora_fi'] ?? '');
 
     if (
-        !$pistaId || !$tarifaId ||
-        !dataReservaValida($data) ||
-        !preg_match('/^\d{2}:\d{2}(:\d{2})?$/', $horaInici) ||
-        !preg_match('/^\d{2}:\d{2}(:\d{2})?$/', $horaFi)
+        !$pistaId || $pistaId < 1
+        || !$tarifaId || $tarifaId < 1
+        || !dataReservaValida($data)
+        || $horaInici === false
+        || $horaFi === false
     ) {
         return [
             'success' => false,
@@ -511,32 +596,13 @@ function modificarReserva($pdo, $reservaId, $usuari, $dades)
         ];
     }
 
-    // Normalitzem les hores al format HH:MM:SS.
-    if (strlen($horaInici) === 5) {
-        $horaInici .= ':00';
-    }
-
-    if (strlen($horaFi) === 5) {
-        $horaFi .= ':00';
-    }
-
-    // Validem que les hores existeixin i estiguin ordenades.
-    $inici = DateTime::createFromFormat('!H:i:s', $horaInici);
-    $fi = DateTime::createFromFormat('!H:i:s', $horaFi);
-
-    if (
-        !$inici || !$fi ||
-        $inici->format('H:i:s') !== $horaInici ||
-        $fi->format('H:i:s') !== $horaFi ||
-        $horaInici >= $horaFi
-    ) {
+    if ($horaInici >= $horaFi) {
         return [
             'success' => false,
-            'message' => 'Les hores indicades no són vàlides.'
+            'message' => 'L’hora final ha de ser posterior a la inicial.'
         ];
     }
 
-    // La nova data i hora han de ser futures.
     $dataHoraInici = DateTime::createFromFormat(
         '!Y-m-d H:i:s',
         "$data $horaInici"
@@ -562,7 +628,7 @@ function modificarReserva($pdo, $reservaId, $usuari, $dades)
         ];
     }
 
-    // Comprovem que la tarifa està activa i és vigent.
+    // Comprovem la tarifa i la seva vigència.
     $stmt = $pdo->prepare(
         "SELECT *
          FROM tarifes
@@ -586,7 +652,6 @@ function modificarReserva($pdo, $reservaId, $usuari, $dades)
         ];
     }
 
-    // La durada ha de coincidir amb la tarifa.
     $minutsInici = strtotime("1970-01-01 $horaInici");
     $minutsFi = strtotime("1970-01-01 $horaFi");
     $durada = ($minutsFi - $minutsInici) / 60;
@@ -598,7 +663,7 @@ function modificarReserva($pdo, $reservaId, $usuari, $dades)
         ];
     }
 
-    // Comprovem que la franja està dins l'horari de la pista.
+    // Comprovem l'horari de la pista.
     $diaSetmana = (int) (new DateTime($data))->format('N');
 
     $stmt = $pdo->prepare(
@@ -625,8 +690,7 @@ function modificarReserva($pdo, $reservaId, $usuari, $dades)
         ];
     }
 
-    // Comprovem que no coincideixi amb una altra reserva confirmada.
-    // Excloem la reserva que estem modificant.
+    // Excloem la reserva que estem modificant de la comprovació.
     $stmt = $pdo->prepare(
         "SELECT id
          FROM reserves
@@ -653,7 +717,7 @@ function modificarReserva($pdo, $reservaId, $usuari, $dades)
         ];
     }
 
-    // Comprovem que no hi hagi cap incidència oberta en aquella franja.
+    // Comprovem si hi ha una incidència oberta.
     $stmt = $pdo->prepare(
         "SELECT id
          FROM incidencies
@@ -676,7 +740,6 @@ function modificarReserva($pdo, $reservaId, $usuari, $dades)
         ];
     }
 
-    // Actualitzem la reserva sense alterar-ne l'estat de pagament.
     $stmt = $pdo->prepare(
         "UPDATE reserves
          SET pista_id = :pista_id,
@@ -697,14 +760,21 @@ function modificarReserva($pdo, $reservaId, $usuari, $dades)
         'id' => $reservaId
     ]);
 
-    if ($stmt->rowCount() > 0 && !empty($reservaActual['usuari_id'])) {
-        crearNotificacio(
+    // Notifiquem el propietari de la reserva modificada.
+    $canviReserva = (
+        $reservaActual['data_reserva'] !== $data
+        || $reservaActual['hora_inici'] !== $horaInici
+        || $reservaActual['hora_fi'] !== $horaFi
+    );
+
+    if ($canviReserva) {
+        notificarReservaSiDisponible(
             $pdo,
             (int) $reservaActual['usuari_id'],
             $reservaId,
             'MODIFICACIO_RESERVA',
             'Reserva modificada',
-            "La reserva núm. {$reservaId} ha estat modificada pel personal del club."
+            "La reserva ha estat modificada. Nova data: $data, de $horaInici a $horaFi."
         );
     }
 
@@ -718,14 +788,25 @@ function modificarReserva($pdo, $reservaId, $usuari, $dades)
         )
     ];
 }
+
 /**
  * Cancel·la una reserva pròpia o, si és ADMIN,
  * una reserva de qualsevol soci.
  */
 function cancelLarReserva($pdo, $reservaId, $usuari)
 {
+    $reservaId = filter_var($reservaId, FILTER_VALIDATE_INT);
+
+    if (!$reservaId || $reservaId < 1) {
+        return [
+            'success' => false,
+            'message' => 'L’identificador de la reserva no és vàlid.'
+        ];
+    }
+
     $stmt = $pdo->prepare(
-        "SELECT r.id, r.estat, s.usuari_id
+        "SELECT r.id, r.estat, r.data_reserva, r.hora_inici,
+                r.hora_fi, s.usuari_id
          FROM reserves r
          INNER JOIN socis s ON s.id = r.soci_id
          WHERE r.id = :id"
@@ -743,7 +824,10 @@ function cancelLarReserva($pdo, $reservaId, $usuari)
 
     $esAdmin = ($usuari['rol'] ?? '') === 'ADMIN';
 
-    if (!$esAdmin && (int) $reserva['usuari_id'] !== (int) $usuari['id']) {
+    if (
+        !$esAdmin
+        && (int) $reserva['usuari_id'] !== (int) $usuari['id']
+    ) {
         return [
             'success' => false,
             'message' => 'No tens permís per cancel·lar aquesta reserva.'
@@ -760,21 +844,28 @@ function cancelLarReserva($pdo, $reservaId, $usuari)
     $stmt = $pdo->prepare(
         "UPDATE reserves
          SET estat = 'CANCEL·LADA'
-         WHERE id = :id AND estat = 'CONFIRMADA'"
+         WHERE id = :id
+           AND estat = 'CONFIRMADA'"
     );
 
     $stmt->execute(['id' => $reservaId]);
 
-    if ($stmt->rowCount() > 0 && !empty($reserva['usuari_id'])) {
-        crearNotificacio(
-            $pdo,
-            (int) $reserva['usuari_id'],
-            (int) $reservaId,
-            'CANCEL·LACIO_RESERVA',
-            'Reserva cancel·lada',
-            "La reserva núm. {$reservaId} ha estat cancel·lada."
-        );
+    if ($stmt->rowCount() !== 1) {
+        return [
+            'success' => false,
+            'message' => 'No s’ha pogut cancel·lar la reserva.'
+        ];
     }
+
+    // Notifiquem el propietari de la reserva cancel·lada.
+    notificarReservaSiDisponible(
+        $pdo,
+        (int) $reserva['usuari_id'],
+        $reservaId,
+        'CANCEL·LACIO_RESERVA',
+        'Reserva cancel·lada',
+        "La reserva del dia {$reserva['data_reserva']}, de {$reserva['hora_inici']} a {$reserva['hora_fi']}, ha estat cancel·lada."
+    );
 
     return [
         'success' => true,
@@ -782,14 +873,12 @@ function cancelLarReserva($pdo, $reservaId, $usuari)
     ];
 }
 
-
 /**
  * Marca una reserva com a pagada.
  * Només ho pot fer un administrador.
  */
 function marcarReservaPagada($pdo, $reservaId, $usuari)
 {
-    // Només l'administrador pot gestionar els pagaments.
     if (($usuari['rol'] ?? '') !== 'ADMIN') {
         return [
             'success' => false,
@@ -797,7 +886,15 @@ function marcarReservaPagada($pdo, $reservaId, $usuari)
         ];
     }
 
-    // Comprovem que la reserva existeix.
+    $reservaId = filter_var($reservaId, FILTER_VALIDATE_INT);
+
+    if (!$reservaId || $reservaId < 1) {
+        return [
+            'success' => false,
+            'message' => 'L’identificador de la reserva no és vàlid.'
+        ];
+    }
+
     $stmt = $pdo->prepare(
         "SELECT id, estat, pagament_estat
          FROM reserves
@@ -814,7 +911,6 @@ function marcarReservaPagada($pdo, $reservaId, $usuari)
         ];
     }
 
-    // No permetem cobrar una reserva cancel·lada.
     if ($reserva['estat'] !== 'CONFIRMADA') {
         return [
             'success' => false,
@@ -822,7 +918,6 @@ function marcarReservaPagada($pdo, $reservaId, $usuari)
         ];
     }
 
-    // Evitem marcar com a pagada una reserva ja pagada.
     if ($reserva['pagament_estat'] === 'PAGAT') {
         return [
             'success' => false,
@@ -830,7 +925,6 @@ function marcarReservaPagada($pdo, $reservaId, $usuari)
         ];
     }
 
-    // Actualitzem l'estat del pagament.
     $stmt = $pdo->prepare(
         "UPDATE reserves
          SET pagament_estat = 'PAGAT',

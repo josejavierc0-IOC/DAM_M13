@@ -3,8 +3,14 @@
 /**
  * Crea una notificació per a un usuari.
  */
-function crearNotificacio($pdo, $usuariId, $reservaId, $tipus, $titol, $missatge)
-{
+function crearNotificacio(
+    $pdo,
+    $usuariId,
+    $reservaId,
+    $tipus,
+    $titol,
+    $missatge
+) {
     $tipusPermesos = [
         'NOVA_RESERVA',
         'CANCEL·LACIO_RESERVA',
@@ -24,8 +30,8 @@ function crearNotificacio($pdo, $usuariId, $reservaId, $tipus, $titol, $missatge
     );
 
     return $stmt->execute([
-        'usuari_id' => $usuariId,
-        'reserva_id' => $reservaId,
+        'usuari_id' => (int) $usuariId,
+        'reserva_id' => $reservaId !== null ? (int) $reservaId : null,
         'tipus' => $tipus,
         'titol' => $titol,
         'missatge' => $missatge
@@ -34,26 +40,55 @@ function crearNotificacio($pdo, $usuariId, $reservaId, $tipus, $titol, $missatge
 
 
 /**
- * Retorna les notificacions de l'usuari autenticat.
+ * Determina si l'usuari autenticat és administrador.
+ *
+ * El login i la validació del token han de proporcionar
+ * el rol amb la clau "rol", tal com fa l'API.
+ */
+function esAdministradorNotificacions($usuari)
+{
+    return strtoupper(trim((string) ($usuari['rol'] ?? ''))) === 'ADMIN';
+}
+
+
+/**
+ * Retorna les notificacions.
+ *
+ * ADMIN: pot consultar les notificacions de tots els usuaris.
+ * Altres usuaris: només poden consultar les seves notificacions.
+ *
  * Es pot filtrar per notificacions llegides o pendents.
  */
 function llistarNotificacions($pdo, $usuari, $dades = [])
 {
+    $esAdmin = esAdministradorNotificacions($usuari);
+
     $sql = "SELECT
                 n.id,
+                n.usuari_id,
                 n.reserva_id,
                 n.tipus,
                 n.titol,
                 n.missatge,
                 n.llegida,
-                n.creat_at
+                n.creat_at,
+                u.nom AS usuari_nom,
+                u.cognoms AS usuari_cognoms,
+                u.email AS usuari_email
             FROM notificacions n
-            WHERE n.usuari_id = :usuari_id";
+            INNER JOIN usuaris u ON u.id = n.usuari_id";
 
-    $parametres = [
-        'usuari_id' => (int) $usuari['id']
-    ];
+    $parametres = [];
 
+    // Els socis només poden consultar les notificacions pròpies.
+    if (!$esAdmin) {
+        $sql .= " WHERE n.usuari_id = :usuari_id";
+        $parametres['usuari_id'] = (int) $usuari['id'];
+    } else {
+        $sql .= " WHERE 1 = 1";
+    }
+
+    // Filtre opcional: 0 = pendent, 1 = llegida.
     if (isset($dades['llegida'])) {
         $llegida = filter_var(
             $dades['llegida'],
@@ -73,21 +108,38 @@ function llistarNotificacions($pdo, $usuari, $dades = [])
 
     $sql .= " ORDER BY n.creat_at DESC, n.id DESC";
 
-    $stmt = $pdo->prepare($sql);
-    $stmt->execute($parametres);
+    try {
+        $stmt = $pdo->prepare($sql);
+        $stmt->execute($parametres);
 
-    return [
-        'success' => true,
-        'data' => $stmt->fetchAll(PDO::FETCH_ASSOC)
-    ];
+        return [
+            'success' => true,
+            'data' => $stmt->fetchAll(PDO::FETCH_ASSOC)
+        ];
+    } catch (PDOException $e) {
+        error_log(
+            'Error en llistar notificacions: ' . $e->getMessage()
+        );
+
+        return [
+            'success' => false,
+            'message' => 'Error en consultar les notificacions.'
+        ];
+    }
 }
 
 
 /**
- * Marca com a llegida una notificació pròpia.
+ * Marca una notificació com a llegida.
+ *
+ * ADMIN pot marcar qualsevol notificació.
+ * Els altres usuaris només poden marcar les seves.
  */
-function marcarNotificacioLlegida($pdo, $notificacioId, $usuari)
-{
+function marcarNotificacioLlegida(
+    $pdo,
+    $notificacioId,
+    $usuari
+) {
     $notificacioId = filter_var(
         $notificacioId,
         FILTER_VALIDATE_INT
@@ -100,67 +152,82 @@ function marcarNotificacioLlegida($pdo, $notificacioId, $usuari)
         ];
     }
 
-    $stmt = $pdo->prepare(
-        "UPDATE notificacions
-         SET llegida = 1
-         WHERE id = :id
-           AND usuari_id = :usuari_id"
-    );
+    $esAdmin = esAdministradorNotificacions($usuari);
 
-    $stmt->execute([
-        'id' => $notificacioId,
-        'usuari_id' => (int) $usuari['id']
-    ]);
+    $sql = "UPDATE notificacions
+            SET llegida = 1
+            WHERE id = :id";
 
-    if ($stmt->rowCount() === 0) {
-        // Diferenciem una notificació pròpia ja llegida
-        // d'una notificació inexistent o d'un altre usuari.
-        $comprovar = $pdo->prepare(
-            "SELECT id, llegida
-             FROM notificacions
-             WHERE id = :id
-               AND usuari_id = :usuari_id"
-        );
+    $parametres = [
+        'id' => $notificacioId
+    ];
 
-        $comprovar->execute([
-            'id' => $notificacioId,
-            'usuari_id' => (int) $usuari['id']
-        ]);
+    if (!$esAdmin) {
+        $sql .= " AND usuari_id = :usuari_id";
+        $parametres['usuari_id'] = (int) $usuari['id'];
+    }
 
-        $notificacio = $comprovar->fetch(PDO::FETCH_ASSOC);
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute($parametres);
 
-        if (!$notificacio) {
-            return [
-                'success' => false,
-                'message' => 'Notificació inexistent o sense permisos.'
-            ];
-        }
+    // Comprovem que la notificació existeix i que hi té accés.
+    $sqlComprovar = "SELECT id, llegida
+                     FROM notificacions
+                     WHERE id = :id";
+
+    $parametresComprovar = [
+        'id' => $notificacioId
+    ];
+
+    if (!$esAdmin) {
+        $sqlComprovar .= " AND usuari_id = :usuari_id";
+        $parametresComprovar['usuari_id'] = (int) $usuari['id'];
+    }
+
+    $comprovar = $pdo->prepare($sqlComprovar);
+    $comprovar->execute($parametresComprovar);
+
+    $notificacio = $comprovar->fetch(PDO::FETCH_ASSOC);
+
+    if (!$notificacio) {
+        return [
+            'success' => false,
+            'message' => 'Notificació inexistent o sense permisos.'
+        ];
     }
 
     return [
         'success' => true,
         'message' => 'Notificació marcada com a llegida.',
-        'id' => $notificacioId,
-        'llegida' => 1
+        'id' => (int) $notificacioId,
+        'llegida' => (int) $notificacio['llegida']
     ];
 }
 
 
 /**
- * Marca totes les notificacions pròpies com a llegides.
+ * Marca com a llegides les notificacions accessibles.
+ *
+ * ADMIN: totes les notificacions.
+ * Altres usuaris: només les pròpies.
  */
 function marcarTotesNotificacionsLlegides($pdo, $usuari)
 {
-    $stmt = $pdo->prepare(
-        "UPDATE notificacions
-         SET llegida = 1
-         WHERE usuari_id = :usuari_id
-           AND llegida = 0"
-    );
+    $esAdmin = esAdministradorNotificacions($usuari);
 
-    $stmt->execute([
-        'usuari_id' => (int) $usuari['id']
-    ]);
+    $sql = "UPDATE notificacions
+            SET llegida = 1
+            WHERE llegida = 0";
+
+    $parametres = [];
+
+    if (!$esAdmin) {
+        $sql .= " AND usuari_id = :usuari_id";
+        $parametres['usuari_id'] = (int) $usuari['id'];
+    }
+
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute($parametres);
 
     return [
         'success' => true,

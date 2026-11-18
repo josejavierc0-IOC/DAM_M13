@@ -49,38 +49,69 @@ public class NotificacionsView {
         arrel.setTop(capcalera);
 
         taula = new TableView<>();
-        taula.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY_ALL_COLUMNS);
-        taula.setPlaceholder(new Label("No hi ha notificacions per mostrar."));
+        taula.setColumnResizePolicy(
+                TableView.CONSTRAINED_RESIZE_POLICY_ALL_COLUMNS
+        );
+        taula.setPlaceholder(
+                new Label("No hi ha notificacions per mostrar.")
+        );
 
-        TableColumn<Notificacio, Long> colId = new TableColumn<>("ID");
-        colId.setCellValueFactory(new PropertyValueFactory<>("id"));
+        TableColumn<Notificacio, Long> colId =
+                new TableColumn<>("ID");
+        colId.setCellValueFactory(
+                new PropertyValueFactory<>("id")
+        );
         colId.setMaxWidth(75);
 
-        TableColumn<Notificacio, String> colTipus = new TableColumn<>("Tipus");
-        colTipus.setCellValueFactory(new PropertyValueFactory<>("tipus"));
+        TableColumn<Notificacio, String> colTipus =
+                new TableColumn<>("Tipus");
+        colTipus.setCellValueFactory(
+                new PropertyValueFactory<>("tipus")
+        );
         colTipus.setMinWidth(145);
 
-        TableColumn<Notificacio, String> colTitol = new TableColumn<>("Títol");
-        colTitol.setCellValueFactory(new PropertyValueFactory<>("titol"));
+        TableColumn<Notificacio, String> colTitol =
+                new TableColumn<>("Títol");
+        colTitol.setCellValueFactory(
+                new PropertyValueFactory<>("titol")
+        );
         colTitol.setMinWidth(170);
 
-        TableColumn<Notificacio, String> colMissatge = new TableColumn<>("Missatge");
-        colMissatge.setCellValueFactory(new PropertyValueFactory<>("missatge"));
+        TableColumn<Notificacio, String> colMissatge =
+                new TableColumn<>("Missatge");
+        colMissatge.setCellValueFactory(
+                new PropertyValueFactory<>("missatge")
+        );
         colMissatge.setMinWidth(260);
 
-        TableColumn<Notificacio, String> colData = new TableColumn<>("Data");
-        colData.setCellValueFactory(new PropertyValueFactory<>("data"));
+        TableColumn<Notificacio, String> colData =
+                new TableColumn<>("Data");
+        colData.setCellValueFactory(
+                new PropertyValueFactory<>("data")
+        );
         colData.setMinWidth(135);
 
-        TableColumn<Notificacio, String> colEstat = new TableColumn<>("Estat");
-        colEstat.setCellValueFactory(new PropertyValueFactory<>("estatText"));
+        TableColumn<Notificacio, String> colEstat =
+                new TableColumn<>("Estat");
+        colEstat.setCellValueFactory(
+                new PropertyValueFactory<>("estatText")
+        );
         colEstat.setMaxWidth(100);
 
-        taula.getColumns().addAll(colId, colTipus, colTitol, colMissatge, colData, colEstat);
+        taula.getColumns().addAll(
+                colId,
+                colTipus,
+                colTitol,
+                colMissatge,
+                colData,
+                colEstat
+        );
+
         taula.setRowFactory(tv -> new TableRow<>() {
             @Override
             protected void updateItem(Notificacio item, boolean empty) {
                 super.updateItem(item, empty);
+
                 if (empty || item == null) {
                     setStyle("");
                 } else if (!item.isLlegida()) {
@@ -91,125 +122,214 @@ public class NotificacionsView {
             }
         });
 
-        filtre = new ComboBox<>(FXCollections.observableArrayList(
-                "Totes", "Pendents de llegir", "Llegides"
-        ));
+        filtre = new ComboBox<>(
+                FXCollections.observableArrayList(
+                        "Totes",
+                        "Pendents de llegir",
+                        "Llegides"
+                )
+        );
         filtre.setValue("Totes");
         filtre.setOnAction(e -> carregarNotificacions());
 
         Button botoActualitzar = new Button("Actualitzar");
-        botoActualitzar.setOnAction(e -> carregarNotificacions());
+        botoActualitzar.setOnAction(
+                e -> carregarNotificacions()
+        );
 
-        botoLlegir = new Button("Marcar seleccionada com a llegida");
-        botoLlegir.setOnAction(e -> marcarSeleccionadaComLlegida());
+        botoLlegir = new Button(
+                "Marcar seleccionada com a llegida"
+        );
+        botoLlegir.setOnAction(
+                e -> marcarSeleccionadaComLlegida()
+        );
 
-        botoLlegirTotes = new Button("Marcar totes com a llegides");
-        botoLlegirTotes.setOnAction(e -> marcarTotesComLlegides());
+        botoLlegirTotes = new Button(
+                "Marcar totes com a llegides"
+        );
+        botoLlegirTotes.setOnAction(
+                e -> marcarTotesComLlegides()
+        );
 
-        HBox controls = new HBox(10,
-                new Label("Mostrar:"), filtre, botoActualitzar,
-                botoLlegir, botoLlegirTotes
+        HBox controls = new HBox(
+                10,
+                new Label("Mostrar:"),
+                filtre,
+                botoActualitzar,
+                botoLlegir,
+                botoLlegirTotes
         );
         controls.setAlignment(Pos.CENTER_LEFT);
         controls.setPadding(new Insets(0, 0, 12, 0));
 
         resum = new Label();
+
         missatge = new Label();
         missatge.setWrapText(true);
         missatge.getStyleClass().add("missatge");
 
-        VBox centre = new VBox(10, controls, taula, resum, missatge);
+        VBox centre = new VBox(
+                10,
+                controls,
+                taula,
+                resum,
+                missatge
+        );
+
         VBox.setVgrow(taula, Priority.ALWAYS);
         arrel.setCenter(centre);
 
-        taula.getSelectionModel().selectedItemProperty().addListener(
-                (obs, anterior, seleccionada) -> actualitzarBotons()
-        );
+        taula.getSelectionModel()
+                .selectedItemProperty()
+                .addListener(
+                        (obs, anterior, seleccionada) ->
+                                actualitzarBotons()
+                );
 
         carregarNotificacions();
+
         return arrel;
     }
 
     private void carregarNotificacions() {
         missatge.setText("Carregant notificacions...");
+
         String token = Sessio.getToken();
 
         if (token == null || token.isBlank()) {
-            missatge.setText("No hi ha cap sessió activa. Torna a iniciar sessió.");
+            taula.getItems().clear();
+            resum.setText("");
+            missatge.setText(
+                    "No hi ha cap sessió activa. Torna a iniciar sessió."
+            );
+            actualitzarBotons();
             return;
         }
 
+        // Construïm correctament l'endpoint i els seus paràmetres.
         String endpoint = "notificacions";
-        String valorFiltre = filtre == null ? "Totes" : filtre.getValue();
+        String valorFiltre =
+                filtre == null ? "Totes" : filtre.getValue();
 
         if ("Pendents de llegir".equals(valorFiltre)) {
-            endpoint += "&llegida=0";
+            endpoint += "?llegida=0";
         } else if ("Llegides".equals(valorFiltre)) {
-            endpoint += "&llegida=1";
+            endpoint += "?llegida=1";
         }
 
         try {
             JsonNode resposta = api.get(endpoint, token);
 
             if (!resposta.path("success").asBoolean(false)) {
-                missatge.setText(resposta.path("message")
-                        .asText("No s'han pogut carregar les notificacions."));
+                taula.getItems().clear();
+                resum.setText("");
+
+                missatge.setText(
+                        resposta.path("message").asText(
+                                "No s'han pogut carregar les notificacions."
+                        )
+                );
+
+                actualitzarBotons();
                 return;
             }
 
-            var elements = FXCollections.<Notificacio>observableArrayList();
             JsonNode dades = resposta.path("data");
 
-            if (dades.isArray()) {
-                for (JsonNode node : dades) {
-                    elements.add(new Notificacio(
-                            node.path("id").asLong(),
-                            node.path("reserva_id").isNull()
-                                    ? "" : node.path("reserva_id").asText(""),
-                            node.path("tipus").asText("GENERAL"),
-                            node.path("titol").asText(""),
-                            node.path("missatge").asText(""),
-                            node.path("llegida").asInt(0) == 1,
-                            node.path("creat_at").asText("")
-                    ));
-                }
+            if (!dades.isArray()) {
+                taula.getItems().clear();
+                resum.setText("");
+                missatge.setText(
+                        "La resposta de l'API no conté una llista "
+                                + "de notificacions vàlida."
+                );
+                actualitzarBotons();
+                return;
+            }
+
+            var elements =
+                    FXCollections.<Notificacio>observableArrayList();
+
+            for (JsonNode node : dades) {
+                JsonNode reservaNode = node.path("reserva_id");
+
+                String reservaId =
+                        reservaNode.isMissingNode()
+                                || reservaNode.isNull()
+                                ? ""
+                                : reservaNode.asText("");
+
+                elements.add(
+                        new Notificacio(
+                                node.path("id").asLong(),
+                                reservaId,
+                                node.path("tipus").asText("GENERAL"),
+                                node.path("titol").asText(""),
+                                node.path("missatge").asText(""),
+                                node.path("llegida").asInt(0) == 1,
+                                node.path("creat_at").asText("")
+                        )
+                );
             }
 
             taula.setItems(elements);
+
             int pendents = 0;
-            for (Notificacio n : elements) {
-                if (!n.isLlegida()) pendents++;
+
+            for (Notificacio notificacio : elements) {
+                if (!notificacio.isLlegida()) {
+                    pendents++;
+                }
             }
-            resum.setText("Notificacions mostrades: " + elements.size()
-                    + " · Pendents en aquesta llista: " + pendents);
-            missatge.setText(elements.isEmpty()
-                    ? "No hi ha notificacions amb aquest filtre."
-                    : "Notificacions carregades correctament.");
+
+            resum.setText(
+                    "Notificacions mostrades: " + elements.size()
+                            + " · Pendents en aquesta llista: " + pendents
+            );
+
+            missatge.setText(
+                    elements.isEmpty()
+                            ? "No hi ha notificacions amb aquest filtre."
+                            : "Notificacions carregades correctament."
+            );
+
             actualitzarBotons();
 
         } catch (IOException ex) {
-            missatge.setText("Error de comunicació amb l'API: " + ex.getMessage());
+            missatge.setText(
+                    "Error de comunicació amb l'API: "
+                            + ex.getMessage()
+            );
         } catch (InterruptedException ex) {
             Thread.currentThread().interrupt();
-            missatge.setText("La petició s'ha interromput.");
+
+            missatge.setText(
+                    "La petició s'ha interromput."
+            );
         }
     }
 
     private void marcarSeleccionadaComLlegida() {
-        Notificacio seleccionada = taula.getSelectionModel().getSelectedItem();
+        Notificacio seleccionada =
+                taula.getSelectionModel().getSelectedItem();
 
         if (seleccionada == null) {
-            missatge.setText("Selecciona una notificació de la taula.");
+            missatge.setText(
+                    "Selecciona una notificació de la taula."
+            );
             return;
         }
 
         if (seleccionada.isLlegida()) {
-            missatge.setText("Aquesta notificació ja està llegida.");
+            missatge.setText(
+                    "Aquesta notificació ja està llegida."
+            );
             return;
         }
 
         executarPatch(
-                "notificacions&accio=llegir&id=" + seleccionada.getId(),
+                "notificacions?accio=llegir&id="
+                        + seleccionada.getId(),
                 "La notificació s'ha marcat com a llegida."
         );
     }
@@ -221,27 +341,52 @@ public class NotificacionsView {
                 ButtonType.CANCEL,
                 ButtonType.OK
         );
-        confirmacio.setTitle("Confirmar acció");
-        confirmacio.setHeaderText("Marcar totes com a llegides");
 
-        if (confirmacio.showAndWait().orElse(ButtonType.CANCEL) != ButtonType.OK) {
+        confirmacio.setTitle("Confirmar acció");
+        confirmacio.setHeaderText(
+                "Marcar totes com a llegides"
+        );
+
+        if (confirmacio.showAndWait()
+                .orElse(ButtonType.CANCEL) != ButtonType.OK) {
             return;
         }
 
         executarPatch(
-                "notificacions&accio=llegir_totes",
+                "notificacions?accio=llegir_totes",
                 "Totes les notificacions s'han marcat com a llegides."
         );
     }
 
-    private void executarPatch(String endpoint, String missatgeExit) {
+    private void executarPatch(
+            String endpoint,
+            String missatgeExit
+    ) {
+        String token = Sessio.getToken();
+
+        if (token == null || token.isBlank()) {
+            missatge.setText(
+                    "La sessió ha caducat. Torna a iniciar sessió."
+            );
+            return;
+        }
+
         try {
-            ObjectNode dadesBuides = mapper.createObjectNode();
-            JsonNode resposta = api.patch(endpoint, Sessio.getToken(), dadesBuides);
+            ObjectNode dadesBuides =
+                    mapper.createObjectNode();
+
+            JsonNode resposta = api.patch(
+                    endpoint,
+                    token,
+                    dadesBuides
+            );
 
             if (!resposta.path("success").asBoolean(false)) {
-                missatge.setText(resposta.path("message")
-                        .asText("No s'ha pogut actualitzar la notificació."));
+                missatge.setText(
+                        resposta.path("message").asText(
+                                "No s'ha pogut actualitzar la notificació."
+                        )
+                );
                 return;
             }
 
@@ -249,24 +394,43 @@ public class NotificacionsView {
             carregarNotificacions();
 
         } catch (IOException ex) {
-            missatge.setText("Error de comunicació amb l'API: " + ex.getMessage());
+            missatge.setText(
+                    "Error de comunicació amb l'API: "
+                            + ex.getMessage()
+            );
         } catch (InterruptedException ex) {
             Thread.currentThread().interrupt();
-            missatge.setText("La petició s'ha interromput.");
+
+            missatge.setText(
+                    "La petició s'ha interromput."
+            );
         }
     }
 
     private void actualitzarBotons() {
-        if (botoLlegir == null || botoLlegirTotes == null || taula == null) return;
+        if (botoLlegir == null
+                || botoLlegirTotes == null
+                || taula == null) {
+            return;
+        }
 
-        Notificacio seleccionada = taula.getSelectionModel().getSelectedItem();
-        botoLlegir.setDisable(seleccionada == null || seleccionada.isLlegida());
+        Notificacio seleccionada =
+                taula.getSelectionModel().getSelectedItem();
 
-        boolean hiHaPendents = taula.getItems().stream().anyMatch(n -> !n.isLlegida());
+        botoLlegir.setDisable(
+                seleccionada == null
+                        || seleccionada.isLlegida()
+        );
+
+        boolean hiHaPendents = taula.getItems()
+                .stream()
+                .anyMatch(n -> !n.isLlegida());
+
         botoLlegirTotes.setDisable(!hiHaPendents);
     }
 
     public static class Notificacio {
+
         private final long id;
         private final String reservaId;
         private final String tipus;
@@ -276,9 +440,15 @@ public class NotificacionsView {
         private final String data;
         private final String estatText;
 
-        public Notificacio(long id, String reservaId, String tipus,
-                           String titol, String missatge,
-                           boolean llegida, String dataOriginal) {
+        public Notificacio(
+                long id,
+                String reservaId,
+                String tipus,
+                String titol,
+                String missatge,
+                boolean llegida,
+                String dataOriginal
+        ) {
             this.id = id;
             this.reservaId = reservaId;
             this.tipus = tipus;
@@ -290,25 +460,52 @@ public class NotificacionsView {
         }
 
         private static String formatarData(String valor) {
-            if (valor == null || valor.isBlank() || "null".equalsIgnoreCase(valor)) {
+            if (valor == null
+                    || valor.isBlank()
+                    || "null".equalsIgnoreCase(valor)) {
                 return "";
             }
 
             try {
-                return LocalDateTime.parse(valor.replace(' ', 'T'))
-                        .format(FORMAT_DATA_HORA);
+                return LocalDateTime.parse(
+                        valor.replace(' ', 'T')
+                ).format(FORMAT_DATA_HORA);
+
             } catch (Exception ex) {
                 return valor;
             }
         }
 
-        public long getId() { return id; }
-        public String getReservaId() { return reservaId; }
-        public String getTipus() { return tipus; }
-        public String getTitol() { return titol; }
-        public String getMissatge() { return missatge; }
-        public boolean isLlegida() { return llegida; }
-        public String getData() { return data; }
-        public String getEstatText() { return estatText; }
+        public long getId() {
+            return id;
+        }
+
+        public String getReservaId() {
+            return reservaId;
+        }
+
+        public String getTipus() {
+            return tipus;
+        }
+
+        public String getTitol() {
+            return titol;
+        }
+
+        public String getMissatge() {
+            return missatge;
+        }
+
+        public boolean isLlegida() {
+            return llegida;
+        }
+
+        public String getData() {
+            return data;
+        }
+
+        public String getEstatText() {
+            return estatText;
+        }
     }
 }

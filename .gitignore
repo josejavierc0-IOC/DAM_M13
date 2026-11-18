@@ -1,0 +1,6 @@
+escriptori/target/
+.vscode/
+
+# Logs generats per Java
+escriptori/hs_err_pid*.log
+escriptori/replay_pid*.log

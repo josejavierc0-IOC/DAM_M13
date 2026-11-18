@@ -832,7 +832,7 @@ if ($metode === 'POST') {
             } else {
 
                 // PATCH: marcar la incidència com a resolta.
-                $resultat = resoldreIncidencia($pdo, $id);
+                $resultat = resoldreIncidencia($pdo, $id, $admin['id']);
             }
         }
 
@@ -1185,6 +1185,211 @@ if ($_SERVER['REQUEST_METHOD'] === 'PATCH') {
         ], JSON_UNESCAPED_UNICODE);
         break;
 
+    
+case 'socis':
+
+    $metode = $_SERVER['REQUEST_METHOD'];
+    $token = obtenirTokenAuthorization();
+
+    // Només els administradors poden gestionar socis.
+    $admin = validarAdmin($pdo, $token);
+
+    if (!$admin) {
+        http_response_code(403);
+        echo json_encode([
+            'success' => false,
+            'message' => 'Accés denegat. Es requereix el rol ADMIN.'
+        ], JSON_UNESCAPED_UNICODE);
+        break;
+    }
+
+    // GET: llistar socis amb les dades del seu usuari.
+    if ($metode === 'GET') {
+        try {
+            $sql = "
+                SELECT
+                    u.id,
+                    s.id AS soci_id,
+                    s.numero_soci,
+                    s.data_alta,
+                    u.nom,
+                    u.cognoms,
+                    u.email,
+                    u.telefon,
+                    u.actiu,
+                    r.nom AS rol
+                FROM socis s
+                INNER JOIN usuaris u ON u.id = s.usuari_id
+                INNER JOIN rols r ON r.id = u.rol_id
+                ORDER BY u.cognoms, u.nom
+            ";
+
+            $stmt = $pdo->query($sql);
+
+            echo json_encode([
+                'success' => true,
+                'data' => $stmt->fetchAll(PDO::FETCH_ASSOC)
+            ], JSON_UNESCAPED_UNICODE);
+
+        } catch (PDOException $e) {
+            error_log('Error en llistar socis: ' . $e->getMessage());
+            http_response_code(500);
+            echo json_encode([
+                'success' => false,
+                'message' => 'Error en consultar els socis.'
+            ], JSON_UNESCAPED_UNICODE);
+        }
+
+        break;
+    }
+
+    // PUT: modificar les dades d'un soci.
+    if ($metode === 'PUT') {
+        $id = filter_var(
+            $_GET['id'] ?? null,
+            FILTER_VALIDATE_INT
+        );
+
+        if (!$id || $id < 1) {
+            http_response_code(400);
+            echo json_encode([
+                'success' => false,
+                'message' => 'Cal indicar un identificador d’usuari vàlid.'
+            ], JSON_UNESCAPED_UNICODE);
+            break;
+        }
+
+        $dades = json_decode(
+            file_get_contents('php://input'),
+            true
+        );
+
+        if (!is_array($dades)) {
+            http_response_code(400);
+            echo json_encode([
+                'success' => false,
+                'message' => 'Les dades rebudes no són vàlides.'
+            ], JSON_UNESCAPED_UNICODE);
+            break;
+        }
+
+        $nom = trim($dades['nom'] ?? '');
+        $cognoms = trim($dades['cognoms'] ?? '');
+        $email = trim($dades['email'] ?? '');
+        $telefon = trim($dades['telefon'] ?? '');
+        $actiu = filter_var(
+            $dades['actiu'] ?? null,
+            FILTER_VALIDATE_INT
+        );
+
+        if (
+            $nom === '' ||
+            $cognoms === '' ||
+            $email === '' ||
+            !filter_var($email, FILTER_VALIDATE_EMAIL) ||
+            !in_array($actiu, [0, 1], true)
+        ) {
+            http_response_code(400);
+            echo json_encode([
+                'success' => false,
+                'message' => 'Revisa el nom, els cognoms, el correu i l’estat.'
+            ], JSON_UNESCAPED_UNICODE);
+            break;
+        }
+
+        try {
+            // Comprovem que el correu no pertanyi a un altre usuari.
+            $sql = "
+                SELECT id
+                FROM usuaris
+                WHERE email = :email
+                  AND id <> :id
+                LIMIT 1
+            ";
+
+            $stmt = $pdo->prepare($sql);
+            $stmt->execute([
+                ':email' => $email,
+                ':id' => $id
+            ]);
+
+            if ($stmt->fetch(PDO::FETCH_ASSOC)) {
+                http_response_code(409);
+                echo json_encode([
+                    'success' => false,
+                    'message' => 'Aquest correu electrònic ja està registrat.'
+                ], JSON_UNESCAPED_UNICODE);
+                break;
+            }
+
+            // Només es poden editar usuaris que siguin socis.
+            $sql = "
+                UPDATE usuaris u
+                INNER JOIN socis s ON s.usuari_id = u.id
+                SET
+                    u.nom = :nom,
+                    u.cognoms = :cognoms,
+                    u.email = :email,
+                    u.telefon = :telefon,
+                    u.actiu = :actiu
+                WHERE u.id = :id
+            ";
+
+            $stmt = $pdo->prepare($sql);
+            $stmt->execute([
+                ':nom' => $nom,
+                ':cognoms' => $cognoms,
+                ':email' => $email,
+                ':telefon' => $telefon !== '' ? $telefon : null,
+                ':actiu' => $actiu,
+                ':id' => $id
+            ]);
+
+            // Verifiquem que l'identificador correspon a un soci.
+            $sql = "
+                SELECT u.id
+                FROM usuaris u
+                INNER JOIN socis s ON s.usuari_id = u.id
+                WHERE u.id = :id
+            ";
+
+            $stmt = $pdo->prepare($sql);
+            $stmt->execute([':id' => $id]);
+
+            if (!$stmt->fetch(PDO::FETCH_ASSOC)) {
+                http_response_code(404);
+                echo json_encode([
+                    'success' => false,
+                    'message' => 'No s’ha trobat el soci.'
+                ], JSON_UNESCAPED_UNICODE);
+                break;
+            }
+
+            echo json_encode([
+                'success' => true,
+                'message' => 'Les dades del soci s’han actualitzat correctament.'
+            ], JSON_UNESCAPED_UNICODE);
+
+        } catch (PDOException $e) {
+            error_log('Error en modificar soci: ' . $e->getMessage());
+            http_response_code(500);
+            echo json_encode([
+                'success' => false,
+                'message' => 'Error en actualitzar les dades del soci.'
+            ], JSON_UNESCAPED_UNICODE);
+        }
+
+        break;
+    }
+
+    http_response_code(405);
+    echo json_encode([
+        'success' => false,
+        'message' => 'Mètode no permès.'
+    ], JSON_UNESCAPED_UNICODE);
+    break;
+
+
     /*
      * =====================================================
      * RECURS NO TROBAT
@@ -1210,7 +1415,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'PATCH') {
                 'incidencies',
                 'reserves',
                 'reserva',
-                'tarifes'
+                'tarifes',
+                'socis'
             ]
         ]);
 

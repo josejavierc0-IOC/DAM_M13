@@ -1,4 +1,3 @@
-
 package dam.clubpadel.escriptori;
 
 import com.fasterxml.jackson.databind.JsonNode;
@@ -15,7 +14,21 @@ public class RegistreView {
 
     private final ApiClient api = new ApiClient();
 
+    /**
+     * Mètode de compatibilitat per a les crides antigues.
+     */
     public Parent crearVista(Runnable tornarLogin) {
+        return crearVista(tornarLogin, tornarLogin);
+    }
+
+    /**
+     * Crea la pantalla de registre amb les opcions de navegació.
+     *
+     * @param tornarLogin acció per tornar a l'inici de sessió
+     * @param tornarMenu acció per tornar al menú principal
+     */
+    public Parent crearVista(Runnable tornarLogin, Runnable tornarMenu) {
+
         Label titol = new Label("IOC Padel Pass");
         titol.getStyleClass().add("titol");
 
@@ -48,11 +61,16 @@ public class RegistreView {
         registrar.getStyleClass().add("boto-principal");
         registrar.setMaxWidth(Double.MAX_VALUE);
 
+        Button botoTornarMenu = new Button("Tornar al menú principal");
+        botoTornarMenu.setMaxWidth(Double.MAX_VALUE);
+        botoTornarMenu.setOnAction(e -> tornarMenu.run());
+
         Button tornar = new Button("Tornar a l'inici de sessió");
         tornar.setMaxWidth(Double.MAX_VALUE);
         tornar.setOnAction(e -> tornarLogin.run());
 
         registrar.setOnAction(e -> {
+
             String nomText = nom.getText().trim();
             String cognomsText = cognoms.getText().trim();
             String emailText = email.getText().trim();
@@ -60,8 +78,11 @@ public class RegistreView {
             String passwordText = password.getText();
             String confirmarText = confirmar.getText();
 
-            if (nomText.isEmpty() || cognomsText.isEmpty()
-                    || emailText.isEmpty() || passwordText.isEmpty()) {
+            if (nomText.isEmpty()
+                    || cognomsText.isEmpty()
+                    || emailText.isEmpty()
+                    || passwordText.isEmpty()) {
+
                 missatge.setText(
                         "Omple el nom, els cognoms, el correu i la contrasenya."
                 );
@@ -84,6 +105,7 @@ public class RegistreView {
             missatge.setText("Registrant el soci...");
 
             try {
+
                 JsonNode resposta = api.registrarUsuari(
                         nomText,
                         cognomsText,
@@ -93,17 +115,20 @@ public class RegistreView {
                 );
 
                 if (resposta.path("success").asBoolean(false)) {
+
                     missatge.setText(
-                            "Registre completat. Ja pots tornar a l'inici "
-                            + "de sessió."
+                            "Registre completat. Ja pots tornar a l'inici de sessió."
                     );
+
                     nom.clear();
                     cognoms.clear();
                     email.clear();
                     telefon.clear();
                     password.clear();
                     confirmar.clear();
+
                 } else {
+
                     missatge.setText(
                             resposta.path("message")
                                     .asText("No s'ha pogut completar el registre.")
@@ -111,14 +136,19 @@ public class RegistreView {
                 }
 
             } catch (IOException ex) {
+
                 missatge.setText(
                         "Error de comunicació amb el servidor: "
-                        + ex.getMessage()
+                                + ex.getMessage()
                 );
+
             } catch (InterruptedException ex) {
+
                 Thread.currentThread().interrupt();
                 missatge.setText("La petició s'ha interromput.");
+
             } finally {
+
                 registrar.setDisable(false);
             }
         });
@@ -140,6 +170,7 @@ public class RegistreView {
                 new Label("Confirma la contrasenya"),
                 confirmar,
                 registrar,
+                botoTornarMenu,
                 tornar,
                 missatge
         );

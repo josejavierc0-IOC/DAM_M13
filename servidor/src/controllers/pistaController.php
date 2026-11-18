@@ -37,10 +37,17 @@ function llistarPistes($pdo)
 }
 
 
-// Dona d'alta una pista.
+
+/**
+ * Dona d'alta una pista i genera automàticament
+ * els horaris de dilluns a diumenge, de 09:00 a 21:00.
+ */
 function crearPista($pdo, $dades)
 {
-    if (!is_array($dades) || empty(trim($dades['nom'] ?? ''))) {
+    if (
+        !is_array($dades) ||
+        empty(trim($dades['nom'] ?? ''))
+    ) {
         return [
             'success' => false,
             'message' => 'El nom de la pista és obligatori'
@@ -48,6 +55,11 @@ function crearPista($pdo, $dades)
     }
 
     try {
+        // Iniciem una transacció perquè les operacions
+        // de creació de la pista i dels horaris siguin conjuntes.
+        $pdo->beginTransaction();
+
+        // 1. Crear la pista.
         $sql = "
             INSERT INTO pistes (nom, tipus, descripcio, activa)
             VALUES (:nom, :tipus, :descripcio, 1)
@@ -60,15 +72,57 @@ function crearPista($pdo, $dades)
             ':descripcio' => trim($dades['descripcio'] ?? '') ?: null
         ]);
 
+        // Obtenir l'identificador de la pista acabada de crear.
+        $pistaId = (int) $pdo->lastInsertId();
+
+        // 2. Preparar la inserció dels horaris.
+        $sqlHorari = "
+            INSERT INTO horaris_pista
+                (pista_id, dia_setmana, hora_inici, hora_fi, actiu)
+            VALUES
+                (:pista_id, :dia, :inici, :fi, 1)
+        ";
+
+        $stmtHorari = $pdo->prepare($sqlHorari);
+
+        // 3. Generar els horaris dels set dies de la setmana.
+        // dia_setmana: 1 = dilluns ... 7 = diumenge.
+        for ($dia = 1; $dia <= 7; $dia++) {
+
+            // Franges d'una hora: 09:00-10:00 fins a 20:00-21:00.
+            for ($hora = 9; $hora < 21; $hora++) {
+
+                $horaInici = sprintf('%02d:00:00', $hora);
+                $horaFi = sprintf('%02d:00:00', $hora + 1);
+
+                $stmtHorari->execute([
+                    ':pista_id' => $pistaId,
+                    ':dia' => $dia,
+                    ':inici' => $horaInici,
+                    ':fi' => $horaFi
+                ]);
+            }
+        }
+
+        // 4. Confirmar la pista i els seus 84 horaris.
+        $pdo->commit();
+
         return [
             'success' => true,
-            'message' => 'Pista creada correctament',
-            'id' => $pdo->lastInsertId()
+            'message' => 'Pista creada correctament amb els seus 84 horaris',
+            'id' => $pistaId
         ];
-    } catch (PDOException $e) {
+
+    } catch (\Throwable $e) {
+
+        // Si alguna operació falla, desfer tots els canvis.
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+
         return [
             'success' => false,
-            'message' => 'Error en crear la pista'
+            'message' => 'Error en crear la pista i els seus horaris'
         ];
     }
 }
